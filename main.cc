@@ -1,5 +1,7 @@
 #include "embeddings.cpp/bert.h"
+#include "diffed/flatlake.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <iomanip>
@@ -15,6 +17,8 @@ int main(int argc, char **argv) {
     const std::string text = argc > 2
         ? argv[2]
         : "This is a test sentence for generating an embedding.";
+    
+    const std::string dtext = "This is a different sentence for comparison.";
 
     bert_ctx *ctx = bert_load_from_file(model_path.c_str());
     if (ctx == nullptr) {
@@ -22,10 +26,21 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-    const int embedding_size = bert_n_embd(ctx);
+    const int32_t embedding_size = bert_n_embd(ctx);
+    flatlake::FlatLake fl(static_cast<size_t>(embedding_size));
     std::vector<float> embedding(embedding_size);
+    std::vector<float> dembedding(embedding_size);
 
     bert_encode(ctx, 4, text.c_str(), embedding.data());
+    bert_encode(ctx, 4, dtext.c_str(), dembedding.data());
+
+    fl.add(0, embedding);
+    fl.add(1, dembedding);
+
+    float dp = flatlake::dot_product(
+        embedding,
+        dembedding,
+        static_cast<size_t>(embedding_size));
 
     double squared_norm = 0.0;
     for (float value : embedding) {
@@ -43,9 +58,11 @@ int main(int argc, char **argv) {
         if (i != 0) {
             std::cout << ", ";
         }
-        std::cout << std::fixed << std::setprecision(6) << embedding[i];
+        std::cout << std::fixed << std::setprecision(6) << embedding[i] - dembedding[i];
     }
     std::cout << "]\n";
+
+    std::cout << "dot product:\t" << dp << "\n";
 
     bert_free(ctx);
     return EXIT_SUCCESS;
