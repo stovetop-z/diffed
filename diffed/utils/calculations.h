@@ -2,6 +2,7 @@
 #define CALCULATIONS_H
 
 #include <vector>
+#include <arm_neon.h>
 
 namespace calculations
 {
@@ -18,10 +19,24 @@ namespace calculations
 
     inline float dot_product(const std::vector<float>& a, const std::vector<float>& b, size_t dim)
     {
-        float total = 0.0f;
-        for (size_t i = 0; i < dim; ++i) {
+        float* fa = (float*)a.data();
+        float* fb = (float*)b.data();
+
+        alignas(32) float total = 0.0f;
+        size_t i = 0;
+        for (i; i + 4 <= dim; i += 4)
+        {
+            float32x4_t f4a = vld1q_f32(fa + i);
+            float32x4_t f4b = vld1q_f32(fb + i);
+
+            total += vaddvq_f32(vmulq_f32(f4a, f4b));
+        }
+        
+        for (i; i < dim; ++i) 
+        {
             total += a[i] * b[i];
         }
+        
         return total;
     }
 }
