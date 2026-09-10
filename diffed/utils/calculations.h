@@ -126,7 +126,7 @@ namespace calculations
         {
             float parsec_i_lower_bound = i == 0 ? 0.0f : num_parsecs / ((float)i);
             float parsec_i_upper_bound = num_parsecs / ((float)i + 1);
-            if(parsec_i_lower_bound <= length <= parsec_i_upper_bound)
+            if(parsec_i_lower_bound <= length  && length <= parsec_i_upper_bound)
             {
                 return i;
             }

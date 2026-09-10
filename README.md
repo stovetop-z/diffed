@@ -1,139 +1,112 @@
-# Vectorized Version Control System
+# Diffed
 
-A prototype version-control system that represents files, commits, and changes as vectors so they can be searched by semantic similarity.
+Diffed is a lightweight C++ vector database prototype. It stores fixed-size float vectors in memory, assigns them to simple search buckets, and returns nearby vectors using cosine similarity.
 
-The current prototype uses [`embeddings.cpp`](embeddings.cpp/) with a BGE embedding model. It can load a model, encode text, and print the resulting vector. The version-control and vector-database layers are the next stages of development.
+The project is intentionally small. It is currently a research and experimentation codebase—not a complete version-control system, persistent database, or production-ready approximate-nearest-neighbor library.
 
-## Current status
+## What it provides
 
-Working:
+- In-memory storage for vectors and numeric IDs.
+- Dimension validation when vectors are inserted.
+- A flat contiguous storage layout for vector data.
+- Bucketed indexing through `R` and `Centroid`.
+- Cosine-similarity queries with a configurable `top_k` result count.
+- Vector math helpers for dot products, norms, distances, and angles.
+- ARM NEON acceleration for common four-float operations.
+- A small embedding example using `embeddings.cpp`.
 
-- Build the `bert.cpp` embedding library and its `ggml` dependency.
-- Download and convert a Hugging Face embedding model.
-- Generate normalized embeddings from C++.
-- Compile and run the test program with `compile.py`.
+## Layout
 
-Planned:
+```text
+diffed/
+├── flatlake.h                 # Basic in-memory vector storage
+├── centroid.h                 # A bucket of stored vectors
+├── R.h                        # Bucketed vector index and queries
+└── utils/calculations.h       # SIMD-enabled vector operations
 
-- Represent commits, files, and diffs as searchable records.
-- Store embeddings in a vector database.
-- Search repository history using natural-language queries.
-- Combine semantic search with normal hash-based version-control operations.
-- Add a command-line interface for indexing, searching, committing, and inspecting history.
-
-## Requirements
-
-- macOS or Linux
-- Python 3
-- A C++20 compiler (`clang++` or `g++`)
-- CMake
-- Hugging Face model access
-
-## Setup
-
-Initialize the embedding library's `ggml` dependency:
-
-```sh
-cd embeddings.cpp
-git submodule update --init --recursive
+main.cc                        # Embedding and query example
+compile.py                     # Example build/run helper
 ```
 
-Create or activate a Python environment and install the model-conversion dependencies:
+## Basic usage
 
-```sh
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r embeddings.cpp/requirements.txt
+The core types can be included directly in a C++20 program:
+
+```cpp
+#include "diffed/R.h"
+
+#include <vector>
+
+int main() {
+    R index(/*dimensions=*/4, /*parsecs=*/1);
+
+    index.add(101, {1.0f, 0.0f, 0.0f, 0.0f}, 4);
+    index.add(102, {0.9f, 0.1f, 0.0f, 0.0f}, 4);
+    index.add(103, {0.0f, 0.0f, 1.0f, 0.0f}, 4);
+
+    std::vector<float> query = {1.0f, 0.0f, 0.0f, 0.0f};
+    auto results = index.query(query, 2);
+}
 ```
 
-## Download and convert a model
+Each result contains the stored ID and its cosine similarity:
 
-Build the native conversion tools first:
-
-```sh
-cmake -S embeddings.cpp -B embeddings.cpp/build-tools \
-  -DBUILD_SHARED_LIBS=OFF \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-
-cmake --build embeddings.cpp/build-tools --parallel
+```cpp
+struct QueryResult {
+    uint64_t id;
+    float similarity;
+};
 ```
 
-Download the model into `embeddings.cpp/models`:
+`FlatLake` can be used on its own when bucketed search is unnecessary:
 
-```sh
-cd embeddings.cpp/models
-python download-repo.py BAAI/bge-base-en-v1.5
+```cpp
+#include "diffed/flatlake.h"
+
+flatlake::FlatLake store(3);
+store.add(1, {0.2f, 0.4f, 0.8f});
 ```
 
-Convert it to GGML format and quantize it:
+## Building the example
+
+The headers themselves only require a C++20 compiler and, on the current implementation, ARM NEON support. The example program additionally links against the local `embeddings.cpp` library.
+
+Build the embedding dependency first, then run:
 
 ```sh
-python convert-to-ggml.py bge-base-en-v1.5 1
-
-../build-tools/bin/quantize \
-  bge-base-en-v1.5/ggml-model-f16.bin \
-  bge-base-en-v1.5/ggml-model-q4_0.bin 2
-
-cd ../..
+python3 compile.py
 ```
 
-The quantized model is used by the C++ test program.
-
-## Build the embedding library
-
-```sh
-cmake -S embeddings.cpp -B embeddings.cpp/build \
-  -DBUILD_SHARED_LIBS=ON \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-
-cmake --build embeddings.cpp/build --parallel
-```
-
-## Compile and run the test
+To compile and run the example:
 
 ```sh
 python3 compile.py --run
 ```
 
-The default test uses:
-
-```text
-embeddings.cpp/models/bge-base-en-v1.5/ggml-model-q4_0.bin
-```
-
-You can provide a different model and input text:
+The example loads a BGE embedding model, creates vectors for sample text, inserts two vectors into `R`, and queries the index. A model path and input text can be supplied as arguments:
 
 ```sh
 python3 compile.py --run \
   path/to/model-q4_0.bin \
-  "Searchable text from a repository"
+  "Text to encode"
 ```
 
-The program prints the embedding size, vector norm, and first few vector values.
+The embedding model and conversion workflow are maintained by the `embeddings.cpp` dependency. They are not required for using the basic vector-storage headers with your own vectors.
 
-## Direction
+## Current limitations
 
-The core design is to preserve ordinary version-control identity while adding semantic retrieval:
+- Data exists only in memory and is lost when the process exits.
+- There is no persistence, WAL, transactions, or recovery.
+- There is no metadata or document storage beyond numeric IDs.
+- The index is experimental and does not yet provide a general ANN algorithm.
+- Query results are limited to the selected bucket rather than a guaranteed global nearest-neighbor search.
+- The current SIMD implementation targets ARM NEON.
+- Thread safety and concurrent reads/writes are not implemented.
 
-```text
-repository content
-        |
-        v
-  files / diffs / commits
-        |
-        v
-    embeddings
-        |
-        v
-    vector index  <---- natural-language query
-```
+## Possible next steps
 
-Hashes remain the source of truth for exact history and reproducibility. Embeddings provide an additional discovery layer for questions such as:
+Potential additions include persistence, metadata filters, deletion and update operations, global or multi-bucket search, better indexing strategies, platform-specific SIMD implementations, and a small public API for inserting and querying records.
 
-- “When did authentication failure handling change?”
-- “Find commits related to database migrations.”
-- “Show code similar to this function.”
+## License
 
-Embeddings should be treated as derived data: the repository history can always be rebuilt if the model or vector index changes.
+No license has been selected yet.

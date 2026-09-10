@@ -21,6 +21,8 @@ int main(int argc, char **argv) {
     
     const std::string dtext = "This is a different sentence for comparison.";
 
+    const std::string query = "This is a similar text for query.";
+
     bert_ctx *ctx = bert_load_from_file(model_path.c_str());
     if (ctx == nullptr) {
         std::cerr << "Failed to load model: " << model_path << '\n';
@@ -32,9 +34,11 @@ int main(int argc, char **argv) {
     R r(static_cast<size_t>(embedding_size), 1);
     std::vector<float> embedding(embedding_size);
     std::vector<float> dembedding(embedding_size);
+    std::vector<float> qembedding(embedding_size);
 
     bert_encode(ctx, 4, text.c_str(), embedding.data());
     bert_encode(ctx, 4, dtext.c_str(), dembedding.data());
+    bert_encode(ctx, 4, query.c_str(), qembedding.data());
 
     r.add(0, embedding, dim);
     r.add(1, dembedding, dim);
@@ -65,6 +69,9 @@ int main(int argc, char **argv) {
     std::cout << "]\n";
 
     std::cout << "dot product:\t" << dp << "\n";
+
+    std::vector<QueryResult> q = r.query(qembedding, 1);
+    std::cout << q.at(0).id << "\n";
 
     bert_free(ctx);
     return EXIT_SUCCESS;

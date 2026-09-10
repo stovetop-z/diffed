@@ -14,7 +14,7 @@ struct Centroid : flatlake::FlatLake
     {
     }
 
-    inline const char* cStr()
+    inline std::string cStr() const
     {
         std::string str = "";
         for(size_t i = 0; i < num_vectors; i++)
@@ -28,7 +28,7 @@ struct Centroid : flatlake::FlatLake
             str.pop_back();
             str += "]\n";
         }
-        return str.c_str();
+        return str;
     }
 };
 #endif // CENTROID_H

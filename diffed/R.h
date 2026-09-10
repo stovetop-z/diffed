@@ -5,6 +5,12 @@
 #include "utils/calculations.h"
 #include "centroid.h"
 
+struct QueryResult
+{
+    uint64_t id;
+    float similarity;
+};
+
 struct R
 {
     std::vector<float> reference_frame;
@@ -74,7 +80,42 @@ struct R
         c.bucket = bucket;
     }
 
-    inline const char* rCStr()
+    inline std::vector<QueryResult> query(const std::vector<float>& q_vec, size_t top_k)
+    {
+        // Locate the target bucket
+        size_t parsec = calculations::whichParsec(q_vec, dimensions, num_parsecs);
+        size_t dimension = calculations::closestDimension(identity_matrix, q_vec, dimensions);
+        size_t bucket_idx = dimension * num_parsecs + parsec;
+
+        Centroid& target_bucket = r.at(bucket_idx);
+        std::vector<QueryResult> results;
+
+        // Compute similarity for every vector stored in the Centroid
+        for(size_t i = 0; i < target_bucket.num_vectors; ++i) 
+        {
+            std::vector<float> candidate(
+                target_bucket.data.begin() + (i * dimensions),
+                target_bucket.data.begin() + ((i + 1) * dimensions)
+            );
+
+            float sim = calculations::cosThetaDotProduct(q_vec, candidate, dimensions);
+            results.push_back({target_bucket.ids[i], sim});
+        }
+
+        // Sort descending by similarity and return top_k
+        std::sort(results.begin(), results.end(), [](const QueryResult& a, const QueryResult& b) {
+            return a.similarity > b.similarity;
+        });
+
+        if(results.size() > top_k) 
+        {
+            results.resize(top_k);
+        }
+
+        return results;
+    }
+
+    inline std::string rCStr() const
     {
         std::string cstr = "";
         for(size_t i = 0; i < buckets; i++)
@@ -85,7 +126,7 @@ struct R
             cstr += r.at(i).cStr();
         }
 
-        return cstr.c_str();
+        return cstr;
     }
 };
 #endif // R_H
