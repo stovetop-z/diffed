@@ -1,5 +1,5 @@
 #include "embeddings.cpp/bert.h"
-#include "diffed/flatlake.h"
+#include "diffed/R.h"
 #include "diffed/utils/calculations.h"
 
 #include <algorithm>
@@ -28,17 +28,18 @@ int main(int argc, char **argv) {
     }
 
     const int32_t embedding_size = bert_n_embd(ctx);
-    flatlake::FlatLake fl(static_cast<size_t>(embedding_size));
+    size_t dim = static_cast<size_t>(embedding_size);
+    R r(static_cast<size_t>(embedding_size), 1);
     std::vector<float> embedding(embedding_size);
     std::vector<float> dembedding(embedding_size);
 
     bert_encode(ctx, 4, text.c_str(), embedding.data());
     bert_encode(ctx, 4, dtext.c_str(), dembedding.data());
 
-    fl.add(0, embedding);
-    fl.add(1, dembedding);
+    r.add(0, embedding, dim);
+    r.add(1, dembedding, dim);
 
-    float dp = calculations::dot_product(
+    float dp = calculations::scalarDotProduct(
         embedding,
         dembedding,
         static_cast<size_t>(embedding_size));
