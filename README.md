@@ -93,7 +93,7 @@ python3 compile.py --run \
 
 The embedding model and conversion workflow are maintained by the `embeddings.cpp` dependency. They are not required for using the basic vector-storage headers with your own vectors.
 
-## Current limitations
+## Notes on limitations
 
 - Data exists only in memory and is lost when the process exits.
 - There is no persistence, WAL, transactions, or recovery.
@@ -106,7 +106,3 @@ The embedding model and conversion workflow are maintained by the `embeddings.cp
 ## Possible next steps
 
 Potential additions include persistence, metadata filters, deletion and update operations, global or multi-bucket search, better indexing strategies, platform-specific SIMD implementations, and a small public API for inserting and querying records.
-
-## License
-
-No license has been selected yet.

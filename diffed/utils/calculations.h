@@ -2,74 +2,70 @@
 #define CALCULATIONS_H
 
 #include <vector>
+#include <cmath>
+#include <limits>
 #include <arm_neon.h>
 
 namespace calculations
 {
     inline float l2(const std::vector<float>& a, const std::vector<float>& b, size_t dimension)
     {
-        float* fa = (float*)a.data();
-        float* fb = (float*)b.data();
-
-        alignas(32) float total = 0.0f;
+        const float* fa = a.data();
+        const float* fb = b.data();
+        float total = 0.0f;
         size_t i = 0;
-        for(i; i + 4 <= dimension; i += 4)
+
+        for(; i + 4 <= dimension; i += 4)
         {
             float32x4_t f4a = vld1q_f32(fa + i);
             float32x4_t f4b = vld1q_f32(fb + i);
-
-            float32x4_t f4c = vsubq_f32(f4a, f4b);
-            total += vaddvq_f32(vmulq_f32(f4c, f4c));
+            float32x4_t diff = vsubq_f32(f4a, f4b);
+            total += vaddvq_f32(vmulq_f32(diff, diff));
         }
-        for(i; i < dimension; i++)
+        for(; i < dimension; ++i)
         {
-            total += pow(fa[i] - fb[i], 2); 
+            float diff = fa[i] - fb[i];
+            total += diff * diff;
         }
-
-        total = sqrt(total);
-        return total;
+        return std::sqrt(total);
     }
 
     inline float scalarDotProduct(const std::vector<float>& a, const std::vector<float>& b, size_t dim)
     {
-        float* fa = (float*)a.data();
-        float* fb = (float*)b.data();
-
-        alignas(32) float total = 0.0f;
+        const float* fa = a.data();
+        const float* fb = b.data();
+        float total = 0.0f;
         size_t i = 0;
-        for (i; i + 4 <= dim; i += 4)
+
+        for(; i + 4 <= dim; i += 4)
         {
             float32x4_t f4a = vld1q_f32(fa + i);
             float32x4_t f4b = vld1q_f32(fb + i);
-
             total += vaddvq_f32(vmulq_f32(f4a, f4b));
         }
-        
-        for (i; i < dim; ++i) 
+        for(; i < dim; ++i)
         {
-            total += a[i] * b[i];
+            total += fa[i] * fb[i];
         }
-
         return total;
     }
 
     inline float norm(const std::vector<float>& point, size_t dim)
     {
-        float* fpoint = (float*)point.data();
-
-        alignas(32) float result = 0.0f;
+        const float* fpoint = point.data();
+        float result = 0.0f;
         size_t i = 0;
-        for(i; i + 4 <= dim; i += 4)
+
+        for(; i + 4 <= dim; i += 4)
         {
             float32x4_t fa = vld1q_f32(fpoint + i);
             result += vaddvq_f32(vmulq_f32(fa, fa));
         }
-        for(i; i < dim; i++)
+        for(; i < dim; ++i)
         {
             result += fpoint[i] * fpoint[i];
         }
-
-        return sqrt(result);
+        return std::sqrt(result);
     }
 
     inline float cosThetaDotProduct(const std::vector<float>& a, const std::vector<float>& b, size_t dim)
@@ -77,31 +73,32 @@ namespace calculations
         float scalar_dot = scalarDotProduct(a, b, dim);
         float norm_a = norm(a, dim);
         float norm_b = norm(b, dim);
-
+        if(norm_a == 0.0f || norm_b == 0.0f) return 0.0f;
         return scalar_dot / (norm_a * norm_b);
     }
 
-
     inline float thetaDotProduct(const std::vector<float>& a, const std::vector<float>& b, size_t dim)
     {
-        float cos_theta_dot_prod = cosThetaDotProduct(a, b, dim);
-        return acosf(cos_theta_dot_prod);
+        float cos_theta = cosThetaDotProduct(a, b, dim);
+        // Clamp to prevent NaN 
+        cos_theta = std::fmax(-1.0f, std::fmin(1.0f, cos_theta));
+        return std::acos(cos_theta);
     }
 
     inline size_t minimumPos(const std::vector<float>& vec, size_t dim)
     {
+        if(dim == 0 || vec.empty()) return 0;
         size_t min_pos = 0;
-        float curr_min;
-        for(size_t i = 0; i < dim; i++)
+        float curr_min = vec[0];
+
+        for(size_t i = 1; i < dim; ++i)
         {
-            curr_min = vec[i];
             if(vec[i] < curr_min)
             {
                 min_pos = i;
                 curr_min = vec[i];
             }
         }
-
         return min_pos;
     }
 
@@ -109,30 +106,32 @@ namespace calculations
     {
         std::vector<float> distances;
         distances.reserve(dim);
-        for(size_t i = 0; i < dim; i++)
+        for(size_t i = 0; i < dim; ++i)
         {
-            std::vector<float> I(unit_matrix.begin() + i * dim, unit_matrix.begin() + i * dim + dim);
+            std::vector<float> I(unit_matrix.begin() + (i * dim), unit_matrix.begin() + ((i + 1) * dim));
             distances.push_back(l2(I, point, dim));
         }
-
         return minimumPos(distances, dim);
     }
 
-    inline size_t whichParsec(const std::vector<float>& point, size_t dim, size_t num_parsecs)
+    inline size_t whichParsec(const std::vector<float>& point, size_t dim, size_t num_parsecs, float max_expected_norm = 2.0f)
     {
-        float length = norm(point, dim);
+        if(num_parsecs <= 1) return 0;
 
-        for(size_t i = 0; i < num_parsecs; i++)
+        float length = norm(point, dim);
+        float step = max_expected_norm / static_cast<float>(num_parsecs);
+
+        for(size_t i = 0; i < num_parsecs; ++i)
         {
-            float parsec_i_lower_bound = i == 0 ? 0.0f : num_parsecs / ((float)i);
-            float parsec_i_upper_bound = num_parsecs / ((float)i + 1);
-            if(parsec_i_lower_bound <= length  && length <= parsec_i_upper_bound)
+            float lower = i * step;
+            float upper = (i + 1) * step;
+            if(length >= lower && length < upper)
             {
                 return i;
             }
         }
-
         return num_parsecs - 1;
     }
 }
+
 #endif // CALCULATIONS_H

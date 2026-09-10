@@ -1,7 +1,7 @@
 #ifndef R_H
 #define R_H
 
-#include <vector>
+#include <unordered_set>
 #include "utils/calculations.h"
 #include "centroid.h"
 
@@ -80,38 +80,84 @@ struct R
         c.bucket = bucket;
     }
 
-    inline std::vector<QueryResult> query(const std::vector<float>& q_vec, size_t top_k)
+    inline std::vector<size_t> topDimensions(const std::vector<float>& q_vec, size_t top_dims)
     {
-        // Locate the target bucket
-        size_t parsec = calculations::whichParsec(q_vec, dimensions, num_parsecs);
-        size_t dimension = calculations::closestDimension(identity_matrix, q_vec, dimensions);
-        size_t bucket_idx = dimension * num_parsecs + parsec;
+        std::vector<std::pair<float, size_t>> dist_idx;
+        dist_idx.reserve(dimensions);
 
-        Centroid& target_bucket = r.at(bucket_idx);
-        std::vector<QueryResult> results;
-
-        // Compute similarity for every vector stored in the Centroid
-        for(size_t i = 0; i < target_bucket.num_vectors; ++i) 
+        for(size_t i = 0; i < dimensions; ++i)
         {
-            std::vector<float> candidate(
-                target_bucket.data.begin() + (i * dimensions),
-                target_bucket.data.begin() + ((i + 1) * dimensions)
-            );
-
-            float sim = calculations::cosThetaDotProduct(q_vec, candidate, dimensions);
-            results.push_back({target_bucket.ids[i], sim});
+            std::vector<float> I(identity_matrix.begin() + (i * dimensions), 
+                                 identity_matrix.begin() + ((i + 1) * dimensions));
+            dist_idx.push_back({calculations::l2(I, q_vec, dimensions), i});
         }
 
-        // Sort descending by similarity and return top_k
+        std::sort(dist_idx.begin(), dist_idx.end());
+        
+        size_t take = std::min(top_dims, dimensions);
+        std::vector<size_t> chosen;
+        chosen.reserve(take);
+        for(size_t i = 0; i < take; ++i)
+        {
+            chosen.push_back(dist_idx[i].second);
+        }
+        return chosen;
+    }
+
+    inline std::vector<QueryResult> query(const std::vector<float>& q_vec, size_t top_k, size_t probe_dims = 2)
+    {
+        size_t primary_parsec = calculations::whichParsec(q_vec, dimensions, num_parsecs);
+        std::vector<size_t> dims = topDimensions(q_vec, probe_dims);
+
+        // Collect candidate bucket indices (including adjacent parsec shells)
+        std::vector<size_t> target_buckets;
+        for(size_t dim_idx : dims)
+        {
+            target_buckets.push_back(dim_idx * num_parsecs + primary_parsec);
+
+            // Probe adjacent shells if available
+            if(primary_parsec > 0)
+            {
+                target_buckets.push_back(dim_idx * num_parsecs + (primary_parsec - 1));
+            }
+            if(primary_parsec + 1 < num_parsecs)
+            {
+                target_buckets.push_back(dim_idx * num_parsecs + (primary_parsec + 1));
+            }
+        }
+
+        std::vector<QueryResult> results;
+        std::unordered_set<uint64_t> seen_ids;
+
+        for(size_t b_idx : target_buckets)
+        {
+            if(b_idx >= r.size()) continue;
+            Centroid& target_bucket = r.at(b_idx);
+
+            for(size_t i = 0; i < target_bucket.num_vectors; ++i)
+            {
+                uint64_t id = target_bucket.ids[i];
+                if(seen_ids.find(id) != seen_ids.end()) continue;
+                seen_ids.insert(id);
+
+                std::vector<float> candidate(
+                    target_bucket.data.begin() + (i * dimensions),
+                    target_bucket.data.begin() + ((i + 1) * dimensions)
+                );
+
+                float sim = calculations::cosThetaDotProduct(q_vec, candidate, dimensions);
+                results.push_back({id, sim});
+            }
+        }
+
         std::sort(results.begin(), results.end(), [](const QueryResult& a, const QueryResult& b) {
             return a.similarity > b.similarity;
         });
 
-        if(results.size() > top_k) 
+        if(results.size() > top_k)
         {
             results.resize(top_k);
         }
-
         return results;
     }
 
