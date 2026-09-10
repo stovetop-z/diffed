@@ -1,5 +1,6 @@
 #include "embeddings.cpp/bert.h"
 #include "diffed/flatlake.h"
+#include "diffed/utils/calculations.h"
 
 #include <algorithm>
 #include <cmath>
@@ -37,7 +38,7 @@ int main(int argc, char **argv) {
     fl.add(0, embedding);
     fl.add(1, dembedding);
 
-    float dp = flatlake::dot_product(
+    float dp = calculations::dot_product(
         embedding,
         dembedding,
         static_cast<size_t>(embedding_size));
